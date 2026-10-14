@@ -303,21 +303,26 @@ export const useModsServerChannelStore = defineStore('mods:channels:proj-airi:se
     if (!client.value && !initializing.value)
       void initialize()
 
-    if (client.value && connected.value) {
-      client.value.send(data as WebSocketEvent)
+    // The SDK refuses a send until its announce handshake is complete, so a refused
+    // event waits in the queue until `onReady` flushes it.
+    if (client.value && connected.value && client.value.send(data as WebSocketEvent)) {
+      return
     }
-    else {
-      pendingSend.value.push(data as WebSocketEvent)
-    }
+
+    pendingSend.value.push(data as WebSocketEvent)
   }
 
   function flush() {
-    if (client.value && connected.value) {
-      for (const update of pendingSend.value) {
-        client.value.send(update)
-      }
+    if (!client.value || !connected.value)
+      return
 
-      pendingSend.value = []
+    const queued = pendingSend.value
+    pendingSend.value = []
+    for (const [index, update] of queued.entries()) {
+      if (!client.value.send(update)) {
+        pendingSend.value = [...queued.slice(index), ...pendingSend.value]
+        return
+      }
     }
   }
 

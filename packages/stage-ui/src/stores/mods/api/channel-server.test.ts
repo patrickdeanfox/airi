@@ -8,6 +8,8 @@ const serverSdkMocks = vi.hoisted(() => {
 
     readonly listeners = new Map<string, Set<(event: any) => void | Promise<void>>>()
     readonly sent: any[] = []
+    /** When true, `send` refuses like the SDK does before its announce handshake is complete. */
+    refuseSends = false
 
     constructor(public readonly options: Record<string, any>) {
       MockClient.instances.push(this)
@@ -45,6 +47,10 @@ const serverSdkMocks = vi.hoisted(() => {
     }
 
     send(event: any) {
+      if (this.refuseSends) {
+        return false
+      }
+
       this.sent.push(event)
       return true
     }
@@ -375,6 +381,39 @@ describe('channel-server store reconnect', () => {
         data: { message: 'reconnect-authenticated-queued' },
       }),
     ]))
+  })
+
+  it('queues a send that the client refuses after authentication and flushes it when the client reports ready', async () => {
+    const store = useModsServerChannelStore()
+
+    const initializePromise = store.initialize({ token: 'secret' })
+    const client = serverSdkMocks.MockClient.instances[0]
+
+    // The SDK authenticates, then announces. It refuses sends until the announce is complete.
+    client.refuseSends = true
+    client.simulateAuthenticated()
+    await initializePromise
+
+    expect(store.connected).toBe(true)
+
+    store.send({
+      type: 'module:consumer:register',
+      data: { event: 'input:text', mode: 'consumer-group', group: 'chat-ingestion' },
+    } as any)
+
+    expect(client.sent).toEqual([])
+    expect(store.pendingSendCount).toBe(1)
+
+    client.refuseSends = false
+    client.simulateReconnectReady()
+
+    expect(store.pendingSendCount).toBe(0)
+    expect(client.sent).toEqual([
+      expect.objectContaining({
+        type: 'module:consumer:register',
+        data: { event: 'input:text', mode: 'consumer-group', group: 'chat-ingestion' },
+      }),
+    ])
   })
 
   it('does not reconnect while the url scheme is not valid', async () => {
