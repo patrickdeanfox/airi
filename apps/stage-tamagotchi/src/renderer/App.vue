@@ -73,6 +73,7 @@ import { useStageWindowLifecycleStore } from './stores/stage-window-lifecycle'
 import {
   useTamagotchiBuiltinToolsStore,
   useTamagotchiHomeAssistantStore,
+  useTamagotchiLive2dExpressionToolsStore,
   useTamagotchiMcpToolsStore,
   useTamagotchiPluginToolsStore,
 } from './stores/tools'
@@ -111,6 +112,7 @@ const initialRoutePath = resolveInitialRendererRoutePath(route.path)
 const chatStore = useChatStore()
 const builtinToolsStore = useTamagotchiBuiltinToolsStore()
 const homeAssistantStore = useTamagotchiHomeAssistantStore()
+const live2dExpressionToolsStore = useTamagotchiLive2dExpressionToolsStore()
 const mcpToolsStore = useTamagotchiMcpToolsStore()
 const pluginToolsStore = useTamagotchiPluginToolsStore()
 const syncedPinia = usePiniaSynced()
@@ -145,6 +147,9 @@ const stopLeadershipListener = syncedPinia.onLeadershipChange((isLeader) => {
   })
   void homeAssistantStore.refresh().catch((error) => {
     console.warn('[App] Failed to refresh Home Assistant tools:', error)
+  })
+  void live2dExpressionToolsStore.refresh().catch((error) => {
+    console.warn('[App] Failed to refresh Live2D expression tools:', error)
   })
   void refreshPluginRuntimeTools()
 })

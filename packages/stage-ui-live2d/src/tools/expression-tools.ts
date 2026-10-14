@@ -17,6 +17,19 @@ function ensureModelLoaded(): ExpressionToolResult | null {
   return null
 }
 
+function exposedGroupNames(): string[] {
+  const store = useExpressionStore()
+  return [...store.expressionGroups.keys()].filter(name => store.isExposedToLlm(name))
+}
+
+function ensureExposed(name: string): ExpressionToolResult | null {
+  const store = useExpressionStore()
+  if (!store.isExposedToLlm(name)) {
+    return { success: false, error: `Expression "${name}" is not available.`, available: exposedGroupNames() }
+  }
+  return null
+}
+
 function serialize(result: ExpressionToolResult): string {
   return JSON.stringify(result)
 }
@@ -36,7 +49,7 @@ const tools = [
       'Examples: expression_set("Cry", true), expression_set("Blush", 0.7, 3)',
     ].join(' '),
     execute: async ({ name, value, duration }) => {
-      const err = ensureModelLoaded()
+      const err = ensureModelLoaded() ?? ensureExposed(name)
       if (err)
         return serialize(err)
 
@@ -57,15 +70,21 @@ const tools = [
     name: 'expression_get',
     description: [
       'Get the current state of a Live2D expression or parameter.',
-      'Omit the name to list all available expressions with their current values.',
+      'Omit the name to list the expressions you can use.',
     ].join(' '),
     execute: async ({ name }) => {
       const err = ensureModelLoaded()
       if (err)
         return serialize(err)
+      if (!name)
+        return serialize({ success: true, available: exposedGroupNames() })
+
+      const exposureErr = ensureExposed(name)
+      if (exposureErr)
+        return serialize(exposureErr)
 
       const store = useExpressionStore()
-      const result = store.get(name ?? undefined)
+      const result = store.get(name)
       return serialize(result)
     },
     parameters: z.object({
@@ -81,7 +100,7 @@ const tools = [
       'Optionally provide a duration in seconds for auto-reset.',
     ].join(' '),
     execute: async ({ name, duration }) => {
-      const err = ensureModelLoaded()
+      const err = ensureModelLoaded() ?? ensureExposed(name)
       if (err)
         return serialize(err)
 
