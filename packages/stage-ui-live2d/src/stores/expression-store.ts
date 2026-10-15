@@ -129,36 +129,6 @@ function savePersistedDefaults(modelId: string, defaults: Record<string, number>
   }
 }
 
-function llmPersistenceKey(modelId: string): string {
-  return `expression-llm:${modelId}`
-}
-
-interface PersistedLlmExposure {
-  mode: Live2DExpressionLlmMode
-  exposed: Record<string, boolean>
-}
-
-function loadPersistedLlmExposure(modelId: string): PersistedLlmExposure | null {
-  try {
-    const raw = localStorage.getItem(llmPersistenceKey(modelId))
-    if (!raw)
-      return null
-    return JSON.parse(raw) as PersistedLlmExposure
-  }
-  catch {
-    return null
-  }
-}
-
-function savePersistedLlmExposure(modelId: string, exposure: PersistedLlmExposure): void {
-  try {
-    localStorage.setItem(llmPersistenceKey(modelId), JSON.stringify(exposure))
-  }
-  catch (err) {
-    console.warn('[expression-store] Failed to persist LLM exposure:', err)
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -265,11 +235,6 @@ export const useExpressionStore = defineStore('live2d-expressions', () => {
         }
       }
     }
-
-    // Restore persisted LLM exposure
-    const exposure = loadPersistedLlmExposure(id)
-    llmMode.value = exposure?.mode ?? 'none'
-    llmExposed.value = new Map(Object.entries(exposure?.exposed ?? {}))
   }
 
   /**
@@ -438,23 +403,12 @@ export const useExpressionStore = defineStore('live2d-expressions', () => {
 
   // ---- LLM exposure --------------------------------------------------------
 
-  function persistLlmExposure() {
-    if (!modelId.value)
-      return
-    savePersistedLlmExposure(modelId.value, {
-      mode: llmMode.value,
-      exposed: Object.fromEntries(llmExposed.value),
-    })
-  }
-
   function setLlmMode(mode: Live2DExpressionLlmMode) {
     llmMode.value = mode
-    persistLlmExposure()
   }
 
   function setLlmExposed(name: string, value: boolean) {
-    llmExposed.value = new Map(llmExposed.value).set(name, value)
-    persistLlmExposure()
+    llmExposed.value.set(name, value)
   }
 
   /** Check if a specific expression group is exposed to LLM tools. */
