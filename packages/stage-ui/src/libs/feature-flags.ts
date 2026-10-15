@@ -83,8 +83,21 @@ export const FULLSCREEN_WORKSPACE_FLAG = {
   },
 } as const satisfies FeatureFlag
 
+/**
+ * The settings tools that the character can call in a chat turn, for example to switch the voice, the chat model,
+ * the displayed model, the language or the theme when the user asks. The tools are listed on every turn while the
+ * flag is on. It is a device choice, on by default.
+ */
+export const SETTINGS_TOOLS_FLAG = {
+  key: 'settings-tools',
+  titleKey: 'settings.pages.system.experimental.features.settings_tools.title',
+  descriptionKey: 'settings.pages.system.experimental.features.settings_tools.description',
+  defaultEnabled: true,
+  availability: 'local',
+} as const satisfies FeatureFlag
+
 /** Only implemented experiments belong here. An empty catalog produces an empty settings page. */
-export const featureFlags: readonly FeatureFlag[] = [CHARACTER_CARD_SYNC_FLAG, DISPLAY_MODEL_SYNC_FLAG, FULLSCREEN_WORKSPACE_FLAG]
+export const featureFlags: readonly FeatureFlag[] = [CHARACTER_CARD_SYNC_FLAG, DISPLAY_MODEL_SYNC_FLAG, FULLSCREEN_WORKSPACE_FLAG, SETTINGS_TOOLS_FLAG]
 
 /** The variant of a feature: the saved one while the feature still offers it, otherwise the first one. */
 export function resolveFeatureVariant(feature: FeatureFlag | undefined, saved: string | undefined): string | undefined {

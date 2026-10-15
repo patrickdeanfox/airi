@@ -26,6 +26,7 @@ import { useChatVision } from '../composables/vision/use-chat-vision'
 import { useVisionInference } from '../composables/vision/use-vision-inference'
 import { chatAssetIdFrom, inlineConversationAssets, storeChatAttachments } from '../libs/chat-assets'
 import { extractMessageText, isCloudSyncableMessage } from '../libs/chat-sync'
+import { SETTINGS_TOOLS_FLAG } from '../libs/feature-flags'
 import { createChatAnalyticsHooks, getProviderMode } from '../libs/product-signals/events/chat'
 import {
   AIRI_CHAT_APP_SURFACE_HEADER,
@@ -33,6 +34,8 @@ import {
   AIRI_CHAT_SESSION_ID_HEADER,
 } from '../libs/product-signals/headers'
 import { getSpeechBusContext, voiceGenerationEnded } from '../services/speech/bus'
+import { createSettingsTools } from '../tools/settings'
+import { createSettingsAccess } from '../tools/settings/access'
 import { createWakeWordTool } from '../tools/wake-words'
 import { useLLM } from './ai/chat-llm/llm'
 import { resolveLlmTools } from './ai/chat-llm/tool-resolver'
@@ -45,6 +48,7 @@ import { describeChatImages, replaceToolResultImages } from './chat/image-projec
 import { useChatSessionStore } from './chat/session-store'
 import { useChatStreamStore } from './chat/stream-store'
 import { useContextObservabilityStore } from './devtools/context-observability'
+import { useFeatureFlagsStore } from './feature-flags'
 import { useAiriCardStore } from './modules/airi-card'
 import { useAutonomousArtistryStore } from './modules/artistry-autonomous'
 import { useConsciousnessStore } from './modules/consciousness'
@@ -239,6 +243,7 @@ export const useChatStore = defineStore('chat', () => {
   const chatContext = useChatContextStore()
   const cardStore = useAiriCardStore()
   const wakeWords = useWakeWordsStore()
+  const featureFlags = useFeatureFlagsStore()
   const stickersStore = useStickersStore()
   const contextObservability = useContextObservabilityStore()
   const { activeSessionId } = storeToRefs(chatSession)
@@ -923,7 +928,10 @@ export const useChatStore = defineStore('chat', () => {
       tools: async () => {
         const references = collectToolReferences(payload.sessionId, payload.tools)
         const tools = llmToolsStore.getToolsByNames(...references.map(tool => tool.name))
-        return [...tools, await createWakeWordTool({ characterId, setWords: wakeWords.setWords })]
+        const settingsTools = featureFlags.isEnabled(SETTINGS_TOOLS_FLAG.key)
+          ? await createSettingsTools(createSettingsAccess())
+          : []
+        return [...tools, await createWakeWordTool({ characterId, setWords: wakeWords.setWords }), ...settingsTools]
       },
     }
   }

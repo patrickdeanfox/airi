@@ -142,6 +142,18 @@ The detector remains active during playback. A supplied `acceptSpeech` classifie
 The default policy allows barge-in when the browser reports echo cancellation. Without that support, automatic admission waits for playback to end.
 Model selection, acoustic echo classification, and enrollment remain external integrations.
 
+## Settings tools
+
+While the `settings-tools` feature flag is on, which is the default, every chat turn carries tools that let the character read and change settings when the user asks.
+The tools are `settings_get`, `settings_list_options`, `set_chat_model`, `set_voice`, `set_speech_volume`, `set_display_model`, `set_language`, `set_appearance`, `update_character_prompt`, `expression_set` and `expression_reset`.
+`src/tools/settings/index.ts` defines them. `src/tools/settings/access.ts` binds them to the stores of the leader window.
+Writes that a character card owns (chat model, voice, displayed model) go through the card store, so the next card activation keeps them.
+A tool validates its input against the configured providers, the fetched model and voice catalogs, the imported display models, the supported locales, or the enabled Live2D expressions.
+It rejects anything else and returns the valid choices.
+Expressions run through the act token path, as a reply token would, so the character's control policy applies.
+Credentials and base URLs are never readable or writable through these tools.
+Turn the tools off under Settings → System → Experimental → Settings tools.
+
 ## Chat sampling
 
 In **Settings → Modules → Consciousness**, custom temperature and Top P are off
