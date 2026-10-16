@@ -340,7 +340,7 @@ function createFullStageRuntime() {
       stopToolBridge ??= startStageToolBridge(() => syncedPinia.isLeader())
       stopMcpServersAccess ??= useSettingsAccessExtensionsStore().registerMcpServers(mcpServersAccess)
       if (!isWidgetsWindow) {
-        characterOrchestratorStore.initialize()
+        characterOrchestratorStore.initialize(syncedPinia)
       }
 
       defineInvokeHandler(context.value, pluginProtocolListProviders, async () => listProvidersForPluginHost())
@@ -364,6 +364,7 @@ function createFullStageRuntime() {
       stopToolBridge = undefined
       stopMcpServersAccess?.()
       stopMcpServersAccess = undefined
+      characterOrchestratorStore.dispose()
       contextBridgeStore.dispose()
     },
   }
