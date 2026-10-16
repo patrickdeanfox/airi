@@ -17,6 +17,7 @@ import { usePluginHostInspectorStore } from '@proj-airi/stage-ui/stores/devtools
 import { useDisplayModelsStore } from '@proj-airi/stage-ui/stores/display-models'
 import { useModsServerChannelStore } from '@proj-airi/stage-ui/stores/mods/api/channel-server'
 import { useContextBridgeStore } from '@proj-airi/stage-ui/stores/mods/api/context-bridge'
+import { startStageToolBridge } from '@proj-airi/stage-ui/stores/mods/api/tool-bridge'
 import { useAiriCardStore } from '@proj-airi/stage-ui/stores/modules/airi-card'
 import { useArtistryStore } from '@proj-airi/stage-ui/stores/modules/artistry'
 import { useConsciousnessStore } from '@proj-airi/stage-ui/stores/modules/consciousness'
@@ -177,6 +178,7 @@ function createFullStageRuntime() {
 
   let stopAuthenticatedSetup: (() => void) | undefined
   let stopLoggedOutSetup: (() => void) | undefined
+  let stopToolBridge: (() => void) | undefined
 
   async function removeAuthenticationProviderConfiguration() {
     if (!syncedPinia.isLeader())
@@ -330,6 +332,7 @@ function createFullStageRuntime() {
         possibleEvents: ['ui:configure'],
       }).catch(err => console.error('Failed to initialize Mods Server Channel in App.vue:', err))
       contextBridgeStore.initialize()
+      stopToolBridge ??= startStageToolBridge(() => syncedPinia.isLeader())
       if (!isWidgetsWindow) {
         characterOrchestratorStore.initialize()
       }
@@ -351,6 +354,8 @@ function createFullStageRuntime() {
     dispose() {
       stopAuthenticatedSetup?.()
       stopLoggedOutSetup?.()
+      stopToolBridge?.()
+      stopToolBridge = undefined
       contextBridgeStore.dispose()
     },
   }
