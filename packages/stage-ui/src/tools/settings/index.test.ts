@@ -17,6 +17,12 @@ function createSnapshot(overrides: Partial<SettingsSnapshot> = {}): SettingsSnap
     language: 'en',
     theme: { hue: 220, darkMode: 'auto' },
     live2d: { active: true, enabledExpressions: ['Cry', 'Love'] },
+    modules: {
+      homeAssistant: { enabled: false, connected: true, exposureMode: 'all', allowedEntities: [], deniedEntities: [] },
+      webSearch: { enabled: false, hasApiKey: false },
+      vision: { provider: 'ollama', model: 'llava', useForChat: true, useForToolImages: true },
+      hearing: { inputMode: 'push-to-talk', provider: 'speaches', model: 'whisper-small', autoSend: true, autoSendDelayMs: 2000 },
+    },
     ...overrides,
   }
 }
@@ -42,6 +48,16 @@ function createAccess(overrides: Partial<SettingsAccess> = {}): SettingsAccess {
     setDarkMode: vi.fn(),
     updateCharacterPrompt: vi.fn(async () => true),
     dispatchAct: vi.fn(async () => true),
+    renameCharacter: vi.fn(async () => true),
+    setHomeAssistant: vi.fn(),
+    setWebSearchEnabled: vi.fn(),
+    listVisionProviders: vi.fn(() => [{ id: 'ollama', name: 'Ollama' }]),
+    listVisionModels: vi.fn(async () => [{ id: 'llava', name: 'LLaVA' }]),
+    setVisionModel: vi.fn(async () => true),
+    setVisionUsage: vi.fn(),
+    listTranscriptionProviders: vi.fn(() => [{ id: 'speaches', name: 'Speaches' }]),
+    listTranscriptionModels: vi.fn(async () => []),
+    setHearing: vi.fn(),
     ...overrides,
   }
 }
@@ -59,12 +75,12 @@ async function run(access: SettingsAccess, name: string, args: Record<string, un
 }
 
 describe('settings tools', () => {
-  it('creates eleven tools with unique snake_case names', async () => {
+  it('creates sixteen tools with unique snake_case names', async () => {
     const tools = await createSettingsTools(createAccess())
     const names = tools.map(entry => entry.function.name)
 
-    expect(names).toHaveLength(11)
-    expect(new Set(names).size).toBe(11)
+    expect(names).toHaveLength(16)
+    expect(new Set(names).size).toBe(16)
     expect(names.every(name => /^[a-z]+(?:_[a-z]+)*$/.test(name))).toBe(true)
   })
 
@@ -258,5 +274,70 @@ describe('settings tools', () => {
     const result = await run(access, 'set_chat_model', { provider: 'ollama', model: 'llama3' })
 
     expect(result).toEqual({ status: 'rejected', reason: 'catalog offline' })
+  })
+})
+
+describe('module and character tools', () => {
+  it('renames the character with a trimmed name', async () => {
+    const access = createAccess()
+
+    expect(await run(access, 'rename_character', { name: '  Ella ' })).toEqual({ status: 'saved', name: 'Ella' })
+    expect(access.renameCharacter).toHaveBeenCalledWith('Ella')
+  })
+
+  it('refuses a device list for the mode that has none', async () => {
+    const access = createAccess()
+
+    expect(await run(access, 'set_home_assistant', { entityIds: ['light.kitchen'] })).toMatchObject({ status: 'rejected' })
+    expect(access.setHomeAssistant).not.toHaveBeenCalled()
+  })
+
+  it('saves a Home Assistant allow list with its mode', async () => {
+    const access = createAccess()
+
+    await run(access, 'set_home_assistant', { enabled: true, exposureMode: 'allow', entityIds: ['light.kitchen'] })
+    expect(access.setHomeAssistant).toHaveBeenCalledWith({ enabled: true, exposureMode: 'allow', entityIds: ['light.kitchen'] })
+  })
+
+  it('tells the model when web search has no key', async () => {
+    const access = createAccess({ snapshot: vi.fn(() => createSnapshot({ modules: { ...createSnapshot().modules, webSearch: { enabled: true, hasApiKey: false } } })) })
+
+    expect(await run(access, 'set_web_search', { enabled: true })).toMatchObject({ status: 'saved', hint: expect.stringContaining('API key') })
+  })
+
+  it('accepts any transcription model when the provider lists none', async () => {
+    const access = createAccess()
+
+    await run(access, 'set_hearing', { provider: 'Speaches', model: 'Systran/faster-whisper', inputMode: 'always-on' })
+    expect(access.setHearing).toHaveBeenCalledWith({ inputMode: 'always-on', provider: 'speaches', model: 'Systran/faster-whisper', autoSend: undefined, autoSendDelayMs: undefined })
+  })
+
+  it('refuses a vision model that the provider does not list', async () => {
+    const access = createAccess()
+
+    expect(await run(access, 'set_vision', { provider: 'ollama', model: 'gpt-4o' })).toMatchObject({ status: 'rejected' })
+    expect(access.setVisionModel).not.toHaveBeenCalled()
+  })
+
+  it('lists the MCP server tools only with MCP access', async () => {
+    expect((await createToolMap(createAccess())).has('mcp_servers_list')).toBe(false)
+
+    const mcpServers = { list: vi.fn(async () => []), add: vi.fn(async () => {}), setEnabled: vi.fn(async () => {}), remove: vi.fn(async () => {}) }
+    const tools = await createToolMap(createAccess({ mcpServers }))
+    expect([...tools.keys()]).toEqual(expect.arrayContaining(['mcp_servers_list', 'mcp_server_add', 'mcp_server_set_enabled', 'mcp_server_remove']))
+  })
+
+  it('adds an HTTP MCP server and refuses a duplicate name', async () => {
+    const mcpServers = {
+      list: vi.fn(async () => [{ name: 'weather', transport: 'http' as const, enabled: true, target: 'https://example.com/mcp' }]),
+      add: vi.fn(async () => {}),
+      setEnabled: vi.fn(async () => {}),
+      remove: vi.fn(async () => {}),
+    }
+    const access = createAccess({ mcpServers })
+
+    expect(await run(access, 'mcp_server_add', { name: 'Weather', url: 'https://other.example/mcp' })).toMatchObject({ status: 'rejected' })
+    await run(access, 'mcp_server_add', { name: 'search', url: 'https://search.example/mcp' })
+    expect(mcpServers.add).toHaveBeenCalledWith({ name: 'search', url: 'https://search.example/mcp', command: undefined, args: undefined })
   })
 })

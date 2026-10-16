@@ -28,6 +28,7 @@ import { useOnboardingStore } from '@proj-airi/stage-ui/stores/onboarding'
 import { usePerfTracerBridgeStore } from '@proj-airi/stage-ui/stores/perf-tracer-bridge'
 import { listProvidersForPluginHost, shouldPublishPluginHostCapabilities } from '@proj-airi/stage-ui/stores/plugin-host-capabilities'
 import { useSettings, useSettingsAudioDevice } from '@proj-airi/stage-ui/stores/settings'
+import { useSettingsAccessExtensionsStore } from '@proj-airi/stage-ui/stores/settings-access-extensions'
 import { useSettingsStageModel } from '@proj-airi/stage-ui/stores/settings/stage-model'
 import { useTheme } from '@proj-airi/ui'
 import { isEqual } from 'es-toolkit'
@@ -73,6 +74,7 @@ import { useFullscreenStore } from './stores/fullscreen'
 import { useServerChannelSettingsStore } from './stores/settings/server-channel'
 import { useStageWindowLifecycleStore } from './stores/stage-window-lifecycle'
 import {
+  createMcpServersAccess,
   useTamagotchiBuiltinToolsStore,
   useTamagotchiHomeAssistantStore,
   useTamagotchiMcpToolsStore,
@@ -179,6 +181,9 @@ function createFullStageRuntime() {
   let stopAuthenticatedSetup: (() => void) | undefined
   let stopLoggedOutSetup: (() => void) | undefined
   let stopToolBridge: (() => void) | undefined
+  let stopMcpServersAccess: (() => void) | undefined
+  // Created during setup, because the access opens Electron invokes.
+  const mcpServersAccess = createMcpServersAccess()
 
   async function removeAuthenticationProviderConfiguration() {
     if (!syncedPinia.isLeader())
@@ -333,6 +338,7 @@ function createFullStageRuntime() {
       }).catch(err => console.error('Failed to initialize Mods Server Channel in App.vue:', err))
       contextBridgeStore.initialize()
       stopToolBridge ??= startStageToolBridge(() => syncedPinia.isLeader())
+      stopMcpServersAccess ??= useSettingsAccessExtensionsStore().registerMcpServers(mcpServersAccess)
       if (!isWidgetsWindow) {
         characterOrchestratorStore.initialize()
       }
@@ -356,6 +362,8 @@ function createFullStageRuntime() {
       stopLoggedOutSetup?.()
       stopToolBridge?.()
       stopToolBridge = undefined
+      stopMcpServersAccess?.()
+      stopMcpServersAccess = undefined
       contextBridgeStore.dispose()
     },
   }

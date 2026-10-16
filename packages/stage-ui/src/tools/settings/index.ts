@@ -1,10 +1,11 @@
 import type { Tool } from '@xsai/shared-chat'
 
+import type { McpServersAccess } from '../../stores/settings-access-extensions'
 import type { DarkMode, NamedOption, SettingsAccess } from './access'
 
 import { errorMessageFrom } from '@moeru/std'
 import { tool } from '@xsai/tool'
-import { boolean, description, maxValue, minLength, minValue, number, object, optional, picklist, pipe, string } from 'valibot'
+import { array, boolean, description, maxValue, minLength, minValue, number, object, optional, picklist, pipe, string } from 'valibot'
 
 // `createSettingsAccess` stays in `./access`: it binds the stores, which the tools and their tests must not load.
 export type { SettingsAccess, SettingsSnapshot } from './access'
@@ -12,7 +13,11 @@ export type { SettingsAccess, SettingsSnapshot } from './access'
 /** Listing more choices than this makes the tool result too long for the model to use well. */
 const MAX_LISTED_OPTIONS = 60
 
-const listAreas = ['chat_models', 'voices', 'display_models', 'languages', 'expressions'] as const
+const listAreas = ['chat_models', 'voices', 'display_models', 'languages', 'expressions', 'vision_models', 'transcription_models'] as const
+const exposureModes = ['all', 'allow', 'deny'] as const
+const inputModes = ['always-on', 'push-to-talk', 'wake-word'] as const
+/** The hearing settings page offers the same range for the auto-send delay. */
+const MAX_AUTO_SEND_DELAY_MS = 10_000
 const darkModes: readonly DarkMode[] = ['light', 'dark', 'auto']
 
 function rejected(reason: string, extra: Record<string, unknown> = {}) {
@@ -48,7 +53,8 @@ async function createSettingsGetTool(access: SettingsAccess): Promise<Tool> {
     name: 'settings_get',
     description: [
       'Read the current settings: the chat provider and model, the speech provider, model and voice, the speech volume and mute state,',
-      'the displayed model, the language, the theme hue and dark mode, and the Live2D expressions you can use.',
+      'the displayed model, the language, the theme hue and dark mode, the Live2D expressions you can use,',
+      'and the modules: Home Assistant, web search, vision and hearing.',
       'Call it before you change a setting, and when the user asks what is set.',
     ].join(' '),
     parameters: object({}),
@@ -69,7 +75,8 @@ async function createSettingsListOptionsTool(access: SettingsAccess): Promise<To
     description: [
       'List the values a setting accepts. Call it when the user names something you cannot match, or asks what is available.',
       'Areas: chat_models (give provider to list its models, omit it to list the configured chat providers),',
-      'voices (provider defaults to the active speech provider), display_models, languages, expressions.',
+      'voices (provider defaults to the active speech provider), display_models, languages, expressions,',
+      'vision_models and transcription_models (give provider to list its models, omit it to list the configured providers).',
     ].join(' '),
     parameters: object({
       area: pipe(picklist(listAreas), description('The setting to list values for.')),
@@ -105,6 +112,17 @@ async function createSettingsListOptionsTool(access: SettingsAccess): Promise<To
           case 'expressions': {
             const live2d = access.snapshot().live2d
             return { status: 'ok' as const, area, active: live2d.active, expressions: live2d.enabledExpressions }
+          }
+          case 'vision_models':
+          case 'transcription_models': {
+            const providers = area === 'vision_models' ? access.listVisionProviders() : access.listTranscriptionProviders()
+            if (!provider)
+              return { status: 'ok' as const, area, providers, hint: 'Call again with a provider id to list its models.' }
+            const option = findOption(providers, provider)
+            if (!option)
+              return rejected(`Provider "${provider}" is not configured`, { providers })
+            const models = area === 'vision_models' ? await access.listVisionModels(option.id) : await access.listTranscriptionModels(option.id)
+            return { status: 'ok' as const, area, provider: option.id, models: limited(models), ...(models.length === 0 && { hint: 'This provider accepts any model id. Ask the user for the exact id.' }) }
           }
         }
       }
@@ -397,6 +415,282 @@ async function createExpressionResetTool(access: SettingsAccess): Promise<Tool> 
   })
 }
 
+async function createRenameCharacterTool(access: SettingsAccess): Promise<Tool> {
+  return tool({
+    name: 'rename_character',
+    description: 'Change the name of your character card, when the user asks for a new name. The new name shows from the next turn.',
+    parameters: object({
+      name: pipe(string(), minLength(1), description('The new character name.')),
+    }),
+    execute: async ({ name }) => {
+      try {
+        const trimmed = name.trim()
+        if (!trimmed)
+          return rejected('The name is empty')
+
+        if (!await access.renameCharacter(trimmed))
+          return rejected('No active character card to rename')
+
+        return { status: 'saved' as const, name: trimmed }
+      }
+      catch (error) {
+        return rejectedFrom(error, 'The character was not renamed')
+      }
+    },
+  })
+}
+
+async function createSetHomeAssistantTool(access: SettingsAccess): Promise<Tool> {
+  return tool({
+    name: 'set_home_assistant',
+    description: [
+      'Turn the Home Assistant module on or off, and choose which devices you can reach:',
+      'all of them, only an allowed list (allow), or all except a blocked list (deny).',
+      'entityIds replaces the list of the chosen mode. The address and token stay in the settings page, and you cannot set them.',
+    ].join(' '),
+    parameters: object({
+      enabled: optional(pipe(boolean(), description('True turns the module on.'))),
+      exposureMode: optional(pipe(picklist(exposureModes), description('all, allow, or deny.'))),
+      entityIds: optional(pipe(array(pipe(string(), minLength(1))), description('Entity ids for the allow or deny list, for example "light.kitchen".'))),
+    }),
+    execute: async ({ enabled, exposureMode, entityIds }) => {
+      try {
+        if (enabled === undefined && exposureMode === undefined && entityIds === undefined)
+          return rejected('Give enabled, exposureMode, entityIds, or a mix')
+
+        const mode = exposureMode ?? access.snapshot().modules.homeAssistant.exposureMode
+        if (entityIds !== undefined && mode === 'all')
+          return rejected('The mode "all" has no device list. Give exposureMode allow or deny with the list')
+
+        access.setHomeAssistant({ enabled, exposureMode, entityIds })
+        const state = access.snapshot().modules.homeAssistant
+        return {
+          status: 'saved' as const,
+          ...state,
+          ...(state.enabled && !state.connected && { hint: 'The module is on, but the user has not saved an address and token in the settings yet.' }),
+        }
+      }
+      catch (error) {
+        return rejectedFrom(error, 'The Home Assistant settings were not changed')
+      }
+    },
+  })
+}
+
+async function createSetWebSearchTool(access: SettingsAccess): Promise<Tool> {
+  return tool({
+    name: 'set_web_search',
+    description: 'Turn the web search module on or off. The search API key stays in the settings page, and you cannot set it.',
+    parameters: object({
+      enabled: pipe(boolean(), description('True turns web search on.')),
+    }),
+    execute: async ({ enabled }) => {
+      try {
+        access.setWebSearchEnabled(enabled)
+        const state = access.snapshot().modules.webSearch
+        return {
+          status: 'saved' as const,
+          enabled: state.enabled,
+          ...(state.enabled && !state.hasApiKey && { hint: 'Web search is on, but it needs an API key that the user saves in the settings.' }),
+        }
+      }
+      catch (error) {
+        return rejectedFrom(error, 'Web search was not changed')
+      }
+    },
+  })
+}
+
+async function createSetVisionTool(access: SettingsAccess): Promise<Tool> {
+  return tool({
+    name: 'set_vision',
+    description: [
+      'Change how you see images: the vision provider and model (saved on your character card),',
+      'whether chat images go to the vision model, and whether tool images do. Give at least one value.',
+    ].join(' '),
+    parameters: object({
+      provider: optional(pipe(string(), minLength(1), description('A vision provider id from settings_list_options with area vision_models.'))),
+      model: optional(pipe(string(), minLength(1), description('The model id for that provider. Required with provider.'))),
+      useForChat: optional(pipe(boolean(), description('True sends images in the chat to the vision model.'))),
+      useForToolImages: optional(pipe(boolean(), description('True sends images from tools to the vision model.'))),
+    }),
+    execute: async ({ provider, model, useForChat, useForToolImages }) => {
+      try {
+        if (provider === undefined && model === undefined && useForChat === undefined && useForToolImages === undefined)
+          return rejected('Give a provider and model, useForChat, useForToolImages, or a mix')
+
+        if ((provider === undefined) !== (model === undefined))
+          return rejected('Give provider and model together')
+
+        if (provider !== undefined && model !== undefined) {
+          const providers = access.listVisionProviders()
+          const providerOption = findOption(providers, provider)
+          if (!providerOption)
+            return rejected(`Vision provider "${provider}" is not configured`, { providers })
+
+          const models = await access.listVisionModels(providerOption.id)
+          const modelOption = models.length > 0 ? findOption(models, model) : { id: model, name: model }
+          if (!modelOption)
+            return rejected(`Model "${model}" is not available for ${providerOption.name}`, { models: limited(models) })
+
+          if (!await access.setVisionModel(providerOption.id, modelOption.id))
+            return rejected('No active character card to save the vision model on')
+        }
+
+        access.setVisionUsage({ useForChat, useForToolImages })
+        return { status: 'saved' as const, vision: access.snapshot().modules.vision }
+      }
+      catch (error) {
+        return rejectedFrom(error, 'The vision settings were not changed')
+      }
+    },
+  })
+}
+
+async function createSetHearingTool(access: SettingsAccess): Promise<Tool> {
+  return tool({
+    name: 'set_hearing',
+    description: [
+      'Change how you hear the user: the input mode (always-on, push-to-talk, or wake-word),',
+      'the speech-to-text provider and model, and whether a transcript sends itself after a pause. Give at least one value.',
+    ].join(' '),
+    parameters: object({
+      inputMode: optional(pipe(picklist(inputModes), description('always-on, push-to-talk, or wake-word.'))),
+      provider: optional(pipe(string(), minLength(1), description('A transcription provider id from settings_list_options with area transcription_models.'))),
+      model: optional(pipe(string(), minLength(1), description('The model id for the provider. Required with provider.'))),
+      autoSend: optional(pipe(boolean(), description('True sends a transcript after the pause in autoSendDelayMs.'))),
+      autoSendDelayMs: optional(pipe(number(), minValue(0), maxValue(MAX_AUTO_SEND_DELAY_MS), description('The pause before an automatic send, in milliseconds.'))),
+    }),
+    execute: async ({ inputMode, provider, model, autoSend, autoSendDelayMs }) => {
+      try {
+        if (inputMode === undefined && provider === undefined && model === undefined && autoSend === undefined && autoSendDelayMs === undefined)
+          return rejected('Give inputMode, provider and model, autoSend, autoSendDelayMs, or a mix')
+
+        if ((provider === undefined) !== (model === undefined))
+          return rejected('Give provider and model together')
+
+        let providerId: string | undefined
+        let modelId: string | undefined
+        if (provider !== undefined && model !== undefined) {
+          const providers = access.listTranscriptionProviders()
+          const providerOption = findOption(providers, provider)
+          if (!providerOption)
+            return rejected(`Transcription provider "${provider}" is not configured`, { providers })
+
+          const models = await access.listTranscriptionModels(providerOption.id)
+          const modelOption = models.length > 0 ? findOption(models, model) : { id: model, name: model }
+          if (!modelOption)
+            return rejected(`Model "${model}" is not available for ${providerOption.name}`, { models: limited(models) })
+
+          providerId = providerOption.id
+          modelId = modelOption.id
+        }
+
+        access.setHearing({ inputMode, provider: providerId, model: modelId, autoSend, autoSendDelayMs })
+        return { status: 'saved' as const, hearing: access.snapshot().modules.hearing }
+      }
+      catch (error) {
+        return rejectedFrom(error, 'The hearing settings were not changed')
+      }
+    },
+  })
+}
+
+async function createMcpServerTools(mcpServers: McpServersAccess): Promise<Tool[]> {
+  async function findServer(name: string) {
+    const servers = await mcpServers.list()
+    const match = findOption(servers.map(server => ({ ...server, id: server.name })), name)
+    return { servers, match }
+  }
+
+  return Promise.all([
+    tool({
+      name: 'mcp_servers_list',
+      description: 'List the MCP servers you can call tools from, with their transport, target and whether each is on.',
+      parameters: object({}),
+      execute: async () => {
+        try {
+          return { status: 'ok' as const, servers: await mcpServers.list() }
+        }
+        catch (error) {
+          return rejectedFrom(error, 'The MCP servers could not be listed')
+        }
+      },
+    }),
+    tool({
+      name: 'mcp_server_add',
+      description: [
+        'Add an MCP server, when the user asks for it. Give url for an HTTP server, or command and args for a local server.',
+        'A local server runs a program on this computer, so add one only with a command the user gave you.',
+        'Saving restarts all MCP servers.',
+      ].join(' '),
+      parameters: object({
+        name: pipe(string(), minLength(1), description('A short unique name, for example "weather".')),
+        url: optional(pipe(string(), minLength(1), description('The http or https URL of an HTTP server.'))),
+        command: optional(pipe(string(), minLength(1), description('The program of a local server.'))),
+        args: optional(pipe(array(string()), description('Arguments for the program.'))),
+      }),
+      execute: async ({ name, url, command, args }) => {
+        try {
+          if ((url === undefined) === (command === undefined))
+            return rejected('Give exactly one of url or command')
+
+          const { servers, match } = await findServer(name)
+          if (match)
+            return rejected(`An MCP server named "${match.name}" already exists`, { servers })
+
+          await mcpServers.add({ name: name.trim(), url, command, args })
+          return { status: 'saved' as const, servers: await mcpServers.list() }
+        }
+        catch (error) {
+          return rejectedFrom(error, 'The MCP server was not added')
+        }
+      },
+    }),
+    tool({
+      name: 'mcp_server_set_enabled',
+      description: 'Turn one MCP server on or off. Saving restarts all MCP servers.',
+      parameters: object({
+        name: pipe(string(), minLength(1), description('The server name from mcp_servers_list.')),
+        enabled: pipe(boolean(), description('True turns the server on.')),
+      }),
+      execute: async ({ name, enabled }) => {
+        try {
+          const { servers, match } = await findServer(name)
+          if (!match)
+            return rejected(`No MCP server named "${name}"`, { servers })
+
+          await mcpServers.setEnabled(match.name, enabled)
+          return { status: 'saved' as const, servers: await mcpServers.list() }
+        }
+        catch (error) {
+          return rejectedFrom(error, 'The MCP server was not changed')
+        }
+      },
+    }),
+    tool({
+      name: 'mcp_server_remove',
+      description: 'Remove one MCP server, when the user asks for it. Saving restarts all MCP servers.',
+      parameters: object({
+        name: pipe(string(), minLength(1), description('The server name from mcp_servers_list.')),
+      }),
+      execute: async ({ name }) => {
+        try {
+          const { servers, match } = await findServer(name)
+          if (!match)
+            return rejected(`No MCP server named "${name}"`, { servers })
+
+          await mcpServers.remove(match.name)
+          return { status: 'saved' as const, servers: await mcpServers.list() }
+        }
+        catch (error) {
+          return rejectedFrom(error, 'The MCP server was not removed')
+        }
+      },
+    }),
+  ])
+}
+
 /**
  * Creates the tools that let the character read and change settings during one chat turn.
  *
@@ -404,7 +698,7 @@ async function createExpressionResetTool(access: SettingsAccess): Promise<Tool> 
  * to explain: `ok` with the values read, `saved` with what changed, or `rejected` with a reason and the valid choices.
  */
 export async function createSettingsTools(access: SettingsAccess): Promise<Tool[]> {
-  return Promise.all([
+  const tools = await Promise.all([
     createSettingsGetTool(access),
     createSettingsListOptionsTool(access),
     createSetChatModelTool(access),
@@ -416,5 +710,12 @@ export async function createSettingsTools(access: SettingsAccess): Promise<Tool[
     createUpdateCharacterPromptTool(access),
     createExpressionSetTool(access),
     createExpressionResetTool(access),
+    createRenameCharacterTool(access),
+    createSetHomeAssistantTool(access),
+    createSetWebSearchTool(access),
+    createSetVisionTool(access),
+    createSetHearingTool(access),
   ])
+  // Only an app that owns the MCP server file provides this access, so other apps do not list these tools.
+  return access.mcpServers ? [...tools, ...await createMcpServerTools(access.mcpServers)] : tools
 }

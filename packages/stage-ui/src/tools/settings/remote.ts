@@ -20,6 +20,17 @@ const TOOL_ANNOTATIONS: Record<string, StageToolAnnotations> = {
   update_character_prompt: { readOnly: false, destructive: true, idempotent: true },
   expression_set: { readOnly: false, destructive: false, idempotent: true },
   expression_reset: { readOnly: false, destructive: false, idempotent: true },
+  rename_character: { readOnly: false, destructive: false, idempotent: true },
+  set_home_assistant: { readOnly: false, destructive: false, idempotent: true },
+  set_web_search: { readOnly: false, destructive: false, idempotent: true },
+  set_vision: { readOnly: false, destructive: false, idempotent: true },
+  set_hearing: { readOnly: false, destructive: false, idempotent: true },
+  mcp_servers_list: { readOnly: true, destructive: false, idempotent: true },
+  // A local server runs a program on the host.
+  mcp_server_add: { readOnly: false, destructive: true, idempotent: false },
+  mcp_server_set_enabled: { readOnly: false, destructive: false, idempotent: true },
+  // The entry is deleted from the file.
+  mcp_server_remove: { readOnly: false, destructive: true, idempotent: true },
 }
 
 /** Without known behavior, a caller must treat the tool as one that can lose data. */
