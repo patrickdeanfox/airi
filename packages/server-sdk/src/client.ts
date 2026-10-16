@@ -9,6 +9,8 @@ import type {
   ExtensionModuleIdentity,
   ModuleConfigSchema,
   ModuleDependency,
+  StageToolDescriptor,
+  ToolInvokeResponseEvent,
   WebSocketBaseEvent,
   WebSocketEvent,
   WebSocketEventOptionalSource,
@@ -379,6 +381,54 @@ export class Client<C = undefined> {
       if ('error' in answer)
         throw new Error(answer.error)
       return { mimeType: answer.mimeType, data: decodeBase64(answer.data) }
+    }
+    finally {
+      clearTimeout(timer)
+      stop()
+    }
+  }
+
+  /**
+   * Lists the tools that the stage runs for modules, such as the settings tools of the character.
+   *
+   * The call rejects when the client is not connected, or when no stage window answers within `timeoutMs`.
+   */
+  async listStageTools(options: { timeoutMs?: number } = {}): Promise<StageToolDescriptor[]> {
+    const answer = await this.requestStage('tool:list:request', {}, 'tool:list:response', options.timeoutMs)
+    return answer.tools
+  }
+
+  /**
+   * Runs one stage tool. The stage validates `args` against the tool schema first.
+   *
+   * It resolves with `{ name, error }` when the stage refuses the call or the tool fails, so the caller can show the
+   * reason. It rejects only when the client is not connected, or when no stage window answers within `timeoutMs`.
+   */
+  async invokeStageTool(name: string, args: unknown, options: { timeoutMs?: number } = {}): Promise<ToolInvokeResponseEvent> {
+    return this.requestStage('tool:invoke:request', { name, args }, 'tool:invoke:response', options.timeoutMs)
+  }
+
+  /**
+   * Sends one request to the stage and waits for the answer whose `metadata.event.parentId` is the request ID.
+   * Answers to other requests are ignored. The listener and the timer are removed when the call settles.
+   */
+  private async requestStage<Req extends keyof WebSocketEvents<C>, Res extends keyof WebSocketEvents<C>>(
+    type: Req,
+    data: WebSocketEvents<C>[Req],
+    responseType: Res,
+    timeoutMs = 15_000,
+  ): Promise<WebSocketEvents<C>[Res]> {
+    const id = createEventId()
+    const { promise, resolve, reject } = Promise.withResolvers<WebSocketEvents<C>[Res]>()
+    const timer = setTimeout(() => reject(new Error(`The stage did not answer ${String(type)} within ${timeoutMs} ms`)), timeoutMs)
+    const stop = this.onEvent(responseType, (event) => {
+      if (event.metadata.event.parentId === id)
+        resolve(event.data)
+    })
+
+    try {
+      this.sendOrThrow({ type, data, metadata: { event: { id } } } as WebSocketEventOptionalSource<C>)
+      return await promise
     }
     finally {
       clearTimeout(timer)

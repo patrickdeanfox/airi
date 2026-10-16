@@ -1116,6 +1116,44 @@ export type AssetGetResponseEvent
   = | { ref: string, mimeType: string, /** Base64 bytes. */ data: string }
     | { ref: string, error: string }
 
+/** Hints that tell a caller how a stage tool affects state. They mirror the MCP tool annotations. */
+export interface StageToolAnnotations {
+  /** The tool only reads state. */
+  readOnly: boolean
+  /** The tool replaces data that the user cannot get back, such as prompt text. */
+  destructive: boolean
+  /** A second call with the same arguments changes nothing more. */
+  idempotent: boolean
+}
+
+/** One tool that the stage runs for a module, in the same shape that the character's LLM sees. */
+export interface StageToolDescriptor {
+  name: string
+  description: string
+  /** JSON Schema of the arguments. The stage validates the arguments again before it runs the tool. */
+  parameters: Record<string, unknown>
+  annotations: StageToolAnnotations
+}
+
+/** The stage answer to `tool:list:request`. `metadata.event.parentId` is the event ID of the request. */
+export interface ToolListResponseEvent {
+  tools: StageToolDescriptor[]
+}
+
+/** Asks the stage to run one of its tools. */
+export interface ToolInvokeRequestEvent {
+  name: string
+  args: unknown
+}
+
+/**
+ * The stage answer to `tool:invoke:request`. `metadata.event.parentId` is the event ID of the request.
+ * It carries either the tool result or an error.
+ */
+export type ToolInvokeResponseEvent
+  = | { name: string, result: unknown }
+    | { name: string, error: string }
+
 interface SparkNotifyEvent {
   id: string
   eventId: string
@@ -1313,6 +1351,11 @@ export const outputGenAiChatComplete = defineProtocolEventa<OutputGenAiChatCompl
 
 export const assetGetRequest = defineProtocolEventa<AssetGetRequestEvent>('asset:get:request')
 export const assetGetResponse = defineProtocolEventa<AssetGetResponseEvent>('asset:get:response')
+
+export const toolListRequest = defineProtocolEventa<Record<string, never>>('tool:list:request')
+export const toolListResponse = defineProtocolEventa<ToolListResponseEvent>('tool:list:response')
+export const toolInvokeRequest = defineProtocolEventa<ToolInvokeRequestEvent>('tool:invoke:request')
+export const toolInvokeResponse = defineProtocolEventa<ToolInvokeResponseEvent>('tool:invoke:response')
 
 export const sparkNotify = defineProtocolEventa<SparkNotifyEvent>('spark:notify')
 export const sparkEmit = defineProtocolEventa<SparkEmitEvent>('spark:emit')
@@ -1518,6 +1561,34 @@ export interface ProtocolEvents<C = undefined> {
    * The stage answer to `asset:get:request` (stage → module). `metadata.event.parentId` names the request.
    */
   'asset:get:response': AssetGetResponseEvent
+
+  /**
+   * Lists the tools that a module can run on the stage (module → stage).
+   *
+   * Use when:
+   * - A module, such as the MCP bridge for Claude Code, controls settings, the avatar, or expressions
+   *
+   * Expectations:
+   * - Only the leader stage window answers, because the tools change state that the leader owns
+   * - The stage answers only a connection that announced a module, through the destination `peer:<peerId>`
+   */
+  'tool:list:request': Record<string, never>
+  /**
+   * The stage answer to `tool:list:request` (stage → module). `metadata.event.parentId` names the request.
+   */
+  'tool:list:response': ToolListResponseEvent
+  /**
+   * Runs one stage tool with arguments (module → stage).
+   *
+   * Expectations:
+   * - The same answer rules as `tool:list:request`
+   * - The stage validates the arguments and answers with an error when they are not valid
+   */
+  'tool:invoke:request': ToolInvokeRequestEvent
+  /**
+   * The stage answer to `tool:invoke:request` (stage → module). `metadata.event.parentId` names the request.
+   */
+  'tool:invoke:response': ToolInvokeResponseEvent
 
   /**
    * Spark used for allowing agents in a network to raise an event toward the other destinations (e.g. character).
