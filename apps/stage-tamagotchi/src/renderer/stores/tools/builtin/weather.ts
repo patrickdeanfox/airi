@@ -1,12 +1,13 @@
 import type { Tool } from '@xsai/shared-chat'
 
+import { useWeatherStore } from '@proj-airi/stage-ui/stores/modules/weather'
 import { tool } from '@xsai/tool'
 import { z } from 'zod'
 
-import { fetchWeather, weatherForecastDays } from './weather-api'
+import { fetchWeather, geocodeCity, weatherForecastDays } from './weather-api'
 
 export type { WeatherDay, WeatherReport, WeatherView } from './weather-api'
-export { fetchWeather, geocodeCity, mapWmoCode } from './weather-api'
+export { fetchWeather, geocodeCity, mapWmoCode, searchLocations } from './weather-api'
 
 // -- LLM Tool --
 
@@ -19,7 +20,7 @@ const weatherParams = z.object({
   // "上海市" with `language=zh` found a place in the United States, and "東京" with `language=ja` found nothing.
   // Source: https://geocoding-api.open-meteo.com/v1/search
   // Remove this rule when the tool resolves names in other languages, for example with a second search.
-  city: z.string().describe('English name of the city, for example "Shanghai", "Tokyo", or "New York". Translate a city name in another language to English.'),
+  city: z.string().nullable().describe('English name of the city, for example "Shanghai", "Tokyo", or "New York". Translate a city name in another language to English. Use null for the home of the user.'),
   days: z.number().int().min(weatherForecastDays.min).max(weatherForecastDays.max).describe('Number of forecast days from today. Use 1 for today only, 2 to include tomorrow.'),
 })
 
@@ -33,8 +34,12 @@ const weatherParams = z.object({
  * Source: `packages/stage-ui/src/stores/ai/chat-llm/toolset-prompts.ts`.
  * Move the instruction into a toolset prompt when a toolset prompt reaches only turns that have its tools.
  */
-async function executeGetWeather(input: { city: string, days: number }): Promise<string> {
-  return JSON.stringify(await fetchWeather(input.city, input.days))
+async function executeGetWeather(input: { city: string | null, days: number }): Promise<string> {
+  const location = input.city ? await geocodeCity(input.city) : useWeatherStore().homeLocation
+  if (!location)
+    throw new Error('No city given and no home location set. Ask the user for a city.')
+
+  return JSON.stringify(await fetchWeather(location, input.days))
 }
 
 const tools: Promise<Tool>[] = [

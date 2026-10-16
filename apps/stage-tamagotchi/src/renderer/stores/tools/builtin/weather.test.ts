@@ -1,6 +1,8 @@
 import type { WeatherReport } from './weather-api'
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useWeatherStore } from '@proj-airi/stage-ui/stores/modules/weather'
+import { createPinia, setActivePinia } from 'pinia'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { installStrictToolSchemaMatchers } from '../testing/strict-tool-schema'
 import { weatherTools } from './weather'
@@ -8,7 +10,8 @@ import { fetchWeather, geocodeCity, mapWmoCode } from './weather-api'
 
 installStrictToolSchemaMatchers()
 
-const tokyo = { results: [{ name: 'Tokyo', latitude: 35.68, longitude: 139.69, country: 'Japan', timezone: 'Asia/Tokyo' }] }
+const tokyo = { results: [{ name: 'Tokyo', latitude: 35.68, longitude: 139.69, country: 'Japan', admin1: 'Tokyo' }] }
+const tokyoLocation = { name: 'Tokyo', region: 'Tokyo', country: 'Japan', latitude: 35.68, longitude: 139.69 }
 const forecast = {
   timezone: 'Asia/Tokyo',
   current: { temperature_2m: 21.4, relative_humidity_2m: 60, apparent_temperature: 20.6, weather_code: 2, wind_speed_10m: 11.2, is_day: 0 },
@@ -22,18 +25,22 @@ const forecast = {
   },
 }
 
-/** Answers the geocoding request, then the forecast request, and records both URLs. */
-function stubOpenMeteo() {
+/** Answers each request with the next body, in order, and records the URLs. */
+function stubOpenMeteo(...bodies: unknown[]) {
   const fetchMock = vi.fn()
-    .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(tokyo) })
-    .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(forecast) })
+  for (const body of bodies)
+    fetchMock.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(body) })
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
 }
 
 function forecastParams(fetchMock: ReturnType<typeof vi.fn>) {
-  return new URL(fetchMock.mock.calls[1]![0] as string).searchParams
+  return new URL(fetchMock.mock.calls.at(-1)![0] as string).searchParams
 }
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+})
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -110,14 +117,10 @@ describe('weather tool helpers', () => {
     it('returns first result', async () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
         ok: true,
-        json: () => Promise.resolve({
-          results: [{ name: 'Tokyo', latitude: 35.68, longitude: 139.69, country: 'Japan', timezone: 'Asia/Tokyo' }],
-        }),
+        json: () => Promise.resolve(tokyo),
       }))
 
-      const result = await geocodeCity('Tokyo')
-      expect(result.name).toBe('Tokyo')
-      expect(result.country).toBe('Japan')
+      expect(await geocodeCity('Tokyo')).toEqual(tokyoLocation)
     })
 
     it('throws on HTTP error', async () => {
@@ -132,26 +135,26 @@ describe('weather tool helpers', () => {
 
   describe('fetchWeather', () => {
     it('splits days in the time zone of the city and reads the requested number of days', async () => {
-      const fetchMock = stubOpenMeteo()
+      const fetchMock = stubOpenMeteo(forecast)
 
-      await fetchWeather('Tokyo', 3)
+      await fetchWeather(tokyoLocation, 3)
 
       expect(forecastParams(fetchMock).get('timezone')).toBe('auto')
       expect(forecastParams(fetchMock).get('forecast_days')).toBe('3')
     })
 
     it('keeps the requested number of days inside the supported range', async () => {
-      const fetchMock = stubOpenMeteo()
+      const fetchMock = stubOpenMeteo(forecast)
 
-      await fetchWeather('Tokyo', 30)
+      await fetchWeather(tokyoLocation, 30)
 
       expect(forecastParams(fetchMock).get('forecast_days')).toBe('7')
     })
 
     it('labels today and tomorrow, and uses the date for later days', async () => {
-      stubOpenMeteo()
+      stubOpenMeteo(forecast)
 
-      const report = await fetchWeather('Tokyo', 3)
+      const report = await fetchWeather(tokyoLocation, 3)
 
       expect(report.daily.map(day => day.label)).toEqual(['Today', 'Tomorrow', '2026-10-15'])
       expect(report.daily[1]).toEqual({
@@ -170,9 +173,9 @@ describe('weather tool helpers', () => {
     })
 
     it('gives the current weather the chance of precipitation of today', async () => {
-      stubOpenMeteo()
+      stubOpenMeteo(forecast)
 
-      const report = await fetchWeather('Tokyo', 1)
+      const report = await fetchWeather(tokyoLocation, 1)
 
       expect(report.location).toEqual({ city: 'Tokyo', country: 'Japan', timezone: 'Asia/Tokyo' })
       expect(report.current.label).toBe('Now')
@@ -188,7 +191,7 @@ describe('weather tool helpers', () => {
     })
 
     it('returns the weather report as JSON', async () => {
-      const fetchMock = stubOpenMeteo()
+      const fetchMock = stubOpenMeteo(tokyo, forecast)
       const [getWeather] = await weatherTools()
 
       const result = await getWeather.execute({ city: 'Tokyo', days: 2 }, { messages: [], toolCallId: 'call-1' })
@@ -196,6 +199,25 @@ describe('weather tool helpers', () => {
       const report = JSON.parse(result as string) as WeatherReport
       expect(report.daily.map(day => day.date)).toEqual(['2026-10-13', '2026-10-14', '2026-10-15'])
       expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('uses the home location when the city is null', async () => {
+      useWeatherStore().homeLocation = tokyoLocation
+      const fetchMock = stubOpenMeteo(forecast)
+      const [getWeather] = await weatherTools()
+
+      await getWeather.execute({ city: null, days: 1 }, { messages: [], toolCallId: 'call-1' })
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(forecastParams(fetchMock).get('latitude')).toBe('35.68')
+    })
+
+    it('fails when the city is null and no home location is set', async () => {
+      const [getWeather] = await weatherTools()
+
+      await expect(getWeather.execute({ city: null, days: 1 }, { messages: [], toolCallId: 'call-1' }))
+        .rejects
+        .toThrow('no home location set')
     })
   })
 })

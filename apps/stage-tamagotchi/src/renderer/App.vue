@@ -80,6 +80,7 @@ import {
   useTamagotchiMcpToolsStore,
   useTamagotchiPluginToolsStore,
 } from './stores/tools'
+import { startWeatherReactions } from './stores/weather-reactions'
 import { resolveInitialRendererRoutePath, resolveRendererWindowContext } from './window-context'
 
 const { isDark: dark } = useTheme()
@@ -182,6 +183,7 @@ function createFullStageRuntime() {
   let stopLoggedOutSetup: (() => void) | undefined
   let stopToolBridge: (() => void) | undefined
   let stopMcpServersAccess: (() => void) | undefined
+  let stopWeatherReactions: (() => void) | undefined
   // Created during setup, because the access opens Electron invokes.
   const mcpServersAccess = createMcpServersAccess()
 
@@ -341,6 +343,7 @@ function createFullStageRuntime() {
       stopMcpServersAccess ??= useSettingsAccessExtensionsStore().registerMcpServers(mcpServersAccess)
       if (!isWidgetsWindow) {
         characterOrchestratorStore.initialize(syncedPinia)
+        stopWeatherReactions ??= startWeatherReactions(() => syncedPinia.isLeader())
       }
 
       defineInvokeHandler(context.value, pluginProtocolListProviders, async () => listProvidersForPluginHost())
@@ -364,6 +367,8 @@ function createFullStageRuntime() {
       stopToolBridge = undefined
       stopMcpServersAccess?.()
       stopMcpServersAccess = undefined
+      stopWeatherReactions?.()
+      stopWeatherReactions = undefined
       characterOrchestratorStore.dispose()
       contextBridgeStore.dispose()
     },

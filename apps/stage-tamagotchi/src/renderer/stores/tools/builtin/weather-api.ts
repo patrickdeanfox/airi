@@ -1,3 +1,5 @@
+import type { WeatherLocation } from '@proj-airi/stage-ui/stores/modules/weather'
+
 // -- Open-Meteo API types --
 
 interface GeocodingResult {
@@ -6,7 +8,7 @@ interface GeocodingResult {
     latitude: number
     longitude: number
     country: string
-    timezone: string
+    admin1?: string
   }>
 }
 
@@ -118,20 +120,35 @@ export function mapWmoCode(code: number, isNight: boolean): { conditionCode: str
   return mapped
 }
 
-export async function geocodeCity(city: string): Promise<{ name: string, latitude: number, longitude: number, country: string }> {
-  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en&format=json`
-  const res = await fetch(url)
+/**
+ * Finds places that match a city name or a postal code, for example `Denver`, `Denver, CO`, or `80202`.
+ * Open-Meteo matches all three forms itself, so the query goes to it as it is.
+ */
+export async function searchLocations(query: string, count = 10): Promise<WeatherLocation[]> {
+  const params = new URLSearchParams({ name: query, count: String(count), language: 'en', format: 'json' })
+  const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?${params}`)
 
   if (!res.ok)
     throw new Error(`Geocoding request failed: ${res.status}`)
 
   const data: GeocodingResult = await res.json()
 
-  if (!data.results?.length)
+  return (data.results ?? []).map(result => ({
+    name: result.name,
+    region: result.admin1,
+    country: result.country,
+    latitude: result.latitude,
+    longitude: result.longitude,
+  }))
+}
+
+export async function geocodeCity(city: string): Promise<WeatherLocation> {
+  const [result] = await searchLocations(city, 1)
+
+  if (!result)
     throw new Error(`City not found: "${city}"`)
 
-  const result = data.results[0]
-  return { name: result.name, latitude: result.latitude, longitude: result.longitude, country: result.country }
+  return result
 }
 
 function formatTemperature(value: number) {
@@ -151,13 +168,12 @@ function dayLabel(index: number, date: string) {
 }
 
 /**
- * Reads the current weather and a daily forecast for a city.
+ * Reads the current weather and a daily forecast for a location.
  *
  * `timezone: auto` makes Open-Meteo split days in the time zone of the location. Without it, a day is a UTC day,
  * so the high and low of "today" in Shanghai cover a range that starts at 08:00 local time.
  */
-export async function fetchWeather(city: string, days: number): Promise<WeatherReport> {
-  const geo = await geocodeCity(city)
+export async function fetchWeather(geo: WeatherLocation, days: number): Promise<WeatherReport> {
   const forecastDays = Math.min(Math.max(Math.round(days), weatherForecastDays.min), weatherForecastDays.max)
 
   const params = new URLSearchParams({

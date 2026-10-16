@@ -1453,6 +1453,20 @@ pages:
       api-key-description: Web search is powered by Tavily. Get a free API key at tavily.com.
       api-key-placeholder: Enter your Tavily API key
       configured: Web search is ready to use!
+    weather:
+      title: Weather
+      description: Set your home location and let AIRI react when the weather changes
+      home: Home
+      search-failed: The search failed.
+      search:
+        label: Home location
+        description: Enter a city, "City, State", or a postal code. Then pick your place from the list.
+        placeholder: Denver, CO
+        action: Search
+        empty: No places found.
+      reactions:
+        label: React to weather changes
+        description: Check the weather at home every 15 minutes. When it changes, AIRI comments on it and shows how she feels.
     mcp-server:
       title: MCP servers
       description: Configure MCP servers and bring their tools into AIRI.

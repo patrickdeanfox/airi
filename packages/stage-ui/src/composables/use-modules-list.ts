@@ -1,5 +1,6 @@
 import type { BeatSyncDetectorState } from '@proj-airi/stage-shared/beat-sync'
 
+import { isStageTamagotchi } from '@proj-airi/stage-shared'
 import { getBeatSyncState, isBeatSyncSupported, listenBeatSyncStateChange } from '@proj-airi/stage-shared/beat-sync'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -18,6 +19,7 @@ import { useSpeechStore } from '../stores/modules/speech'
 import { useStickersStore } from '../stores/modules/stickers'
 import { useTwitterStore } from '../stores/modules/twitter'
 import { useVisionStore } from '../stores/modules/vision'
+import { useWeatherStore } from '../stores/modules/weather'
 import { useWebSearchStore } from '../stores/modules/web-search'
 
 export interface Module {
@@ -47,6 +49,7 @@ export function useModulesList() {
   const minecraftStore = useMinecraftStore()
   const factorioStore = useFactorioStore()
   const homeAssistantStore = useHomeAssistantStore()
+  const weatherStore = useWeatherStore()
   const artistryStore = useArtistryStore()
   const memoryStore = useMemoryStore()
   const beatSyncState = ref<BeatSyncDetectorState>()
@@ -181,6 +184,18 @@ export function useModulesList() {
       configured: homeAssistantStore.configured,
       category: 'essential',
     },
+    // The weather tool and its reactions run only in the desktop app.
+    ...(isStageTamagotchi()
+      ? [{
+          id: 'weather',
+          name: t('settings.pages.modules.weather.title'),
+          description: t('settings.pages.modules.weather.description'),
+          icon: 'i-solar:cloud-sun-2-bold-duotone',
+          to: '/settings/modules/weather',
+          configured: weatherStore.configured,
+          category: 'essential',
+        }]
+      : []),
     {
       id: 'mcp-server',
       name: t('settings.pages.modules.mcp-server.title'),
