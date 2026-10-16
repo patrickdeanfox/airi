@@ -471,7 +471,7 @@ describe('home assistant tools', () => {
     expect(callService).toHaveBeenCalledTimes(1)
   })
 
-  it('refuses a target that stands for several devices', async () => {
+  it('refuses a group that reaches a blocked member', async () => {
     // Measured: light.turn_on on a group with two members changed both.
     const callService = vi.fn(async () => [])
     const client = createClient({
@@ -482,17 +482,38 @@ describe('home assistant tools', () => {
         attributes: { entity_id: ['light.bed_light', 'light.kitchen_lights'] },
       })),
     })
-    const mounted = await tools(client)
+    const mounted = await tools(client, { exposure: () => ({ mode: 'deny', entityIds: ['light.kitchen_lights'] }) })
 
     await expect(execute(mounted.get('home_assistant_call_service'), {
       domain: 'light',
       service: 'turn_on',
       entity_id: 'group.all_lights',
-    })).rejects.toThrow('is a group of other devices')
+    })).rejects.toThrow('does not expose these members: light.kitchen_lights')
     expect(callService).not.toHaveBeenCalled()
   })
 
-  it('refuses a media player that joined other players', async () => {
+  it('reaches a group when the user exposes every member', async () => {
+    const callService = vi.fn(async () => [])
+    const client = createClient({
+      callService,
+      getState: vi.fn(async () => ({
+        entityId: 'light.shop_lights',
+        state: 'on',
+        attributes: { entity_id: ['light.shop_1', 'light.shop_2'] },
+      })),
+    })
+    const mounted = await tools(client, { exposure: () => ({ mode: 'all' }) })
+
+    await execute(mounted.get('home_assistant_call_service'), {
+      domain: 'light',
+      service: 'turn_off',
+      entity_id: 'light.shop_lights',
+    })
+
+    expect(callService).toHaveBeenCalled()
+  })
+
+  it('refuses a media player that joined a blocked player', async () => {
     // Home Assistant reports the joined players in `group_members`, which names
     // the player itself, so a list of two names stands for a group.
     const callService = vi.fn(async () => [])
@@ -503,7 +524,7 @@ describe('home assistant tools', () => {
         state: 'playing',
         attributes: { group_members: ['media_player.kitchen', 'media_player.living_room'] },
       })),
-    }))
+    }), { exposure: () => ({ mode: 'allow', entityIds: ['media_player.kitchen'] }) })
 
     await expect(execute(mounted.get('home_assistant_call_service'), {
       domain: 'media_player',

@@ -8,8 +8,8 @@ import { tool } from '@xsai/tool'
 import { z } from 'zod'
 
 import { domainOf } from '../libs/home-assistant/client'
-import { allEntitiesExposure, assertEntityExposed, describeExposure, describeHidden, filterExposed } from '../libs/home-assistant/exposure'
-import { assertServiceAllowed, isGroupEntity } from '../libs/home-assistant/services'
+import { allEntitiesExposure, assertEntityExposed, describeExposure, describeHidden, filterExposed, isEntityExposed } from '../libs/home-assistant/exposure'
+import { assertServiceAllowed, groupMembersOf } from '../libs/home-assistant/services'
 
 /**
  * Default cap on the entity list one lookup returns.
@@ -220,8 +220,10 @@ export async function createHomeAssistantTools(
         // The read pins the instance the call will reach, or the address can
         // move during it and the guard checks one instance and acts on another.
         const target = await client.getState(entityId, instance === undefined ? {} : { expectBaseUrl: instance })
-        if (isGroupEntity(entityId, target.attributes))
-          throw new Error(`Entity "${entityId}" is a group of other devices. A service on it changes every member. Ask the user for one device by name, or list the entities and call the service on the member you need.`)
+        // A group passes only when the user exposes every member, so it cannot reach a blocked device.
+        const blockedMembers = groupMembersOf(entityId, target.attributes).filter(member => !isEntityExposed(readExposure(), member))
+        if (blockedMembers.length > 0)
+          throw new Error(`Entity "${entityId}" is a group of other devices, and the user does not expose these members: ${blockedMembers.join(', ')}. A service on it changes every member. Ask the user for one device by name, or call the service on an exposed member.`)
 
         // The policy is read after every await, so a user who blocks the device
         // while the reads above are in flight loses the call.

@@ -72,7 +72,7 @@ export function assertServiceAllowed(domain: string, service: string): void {
 }
 
 /**
- * Reports whether a service target stands for several devices.
+ * Lists the other devices that a service call on this target also reaches.
  *
  * A group carries its members in `entity_id`, and a service call on the group
  * reaches every member. A scene carries the same attribute, and it is the
@@ -80,17 +80,22 @@ export function assertServiceAllowed(domain: string, service: string): void {
  * user allowed with it.
  *
  * A media player that joined others carries them in `group_members` instead.
- * That list names the player itself, so one name stands for one device and two
- * or more names stand for a group.
+ * That list names the player itself, which is not another device.
+ *
+ * @example
+ * groupMembersOf('light.shop_lights', { entity_id: ['light.shop_1', 'light.shop_2'] })
+ * // => ['light.shop_1', 'light.shop_2']
  */
-export function isGroupEntity(entityId: string, attributes: Record<string, unknown>): boolean {
+export function groupMembersOf(entityId: string, attributes: Record<string, unknown>): string[] {
   if (domainOf(entityId) === 'scene')
-    return false
+    return []
 
   const members = attributes.entity_id
   if (Array.isArray(members) && members.length > 0)
-    return true
+    return members.filter((member): member is string => typeof member === 'string')
 
   const joined = attributes.group_members
-  return Array.isArray(joined) && joined.length > 1
+  if (!Array.isArray(joined))
+    return []
+  return joined.filter((member): member is string => typeof member === 'string' && member !== entityId)
 }
