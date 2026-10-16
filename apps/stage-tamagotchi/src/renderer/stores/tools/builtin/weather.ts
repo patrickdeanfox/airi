@@ -47,6 +47,7 @@ const tools: Promise<Tool>[] = [
     name: WEATHER_TOOL_NAME,
     description: [
       'Get the current weather and a daily forecast for a city. Returns JSON with `location`, `current`, and `daily`.',
+      'If the user asks about the weather without naming a place, call this tool with `city` null. Do not ask where the user is: the tool knows the home of the user.',
       '`daily[0]` is today in the time zone of the city. `precipitation` is the chance of precipitation.',
       'To show the weather to the user, you can call `stage_widgets` with action `spawn`, componentName `weather`,',
       'and componentProps set to `current` or one `daily` entry, plus `city` from `location`.',
