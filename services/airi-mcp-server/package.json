@@ -1,0 +1,27 @@
+{
+  "name": "@proj-airi/airi-mcp-server",
+  "type": "module",
+  "version": "0.12.0-beta.5",
+  "private": true,
+  "description": "MCP server that lets an agent such as Claude Code control the running AIRI desktop app",
+  "author": {
+    "name": "Moeru AI Project AIRI Team",
+    "email": "airi@moeru.ai",
+    "url": "https://github.com/moeru-ai"
+  },
+  "license": "MIT",
+  "bin": "./src/bin/run.ts",
+  "scripts": {
+    "start": "tsx ./src/bin/run.ts",
+    "mcp:inspector": "pnpx @modelcontextprotocol/inspector pnpm -F @proj-airi/airi-mcp-server start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "catalog:",
+    "@moeru/std": "catalog:",
+    "@proj-airi/server-sdk": "workspace:^",
+    "@valibot/to-json-schema": "catalog:",
+    "valibot": "catalog:"
+  }
+}

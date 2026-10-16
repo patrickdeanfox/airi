@@ -1,0 +1,46 @@
+<!--
+  Read-only questions for an agent that uses this MCP server, in the mcp-builder evaluation format.
+  The answers are a snapshot of one desktop setup on 2026-10-16. Update them after you change the avatar, voice, or theme.
+-->
+<evaluation>
+  <qa_pair>
+    <question>What is the file format of the avatar model that the character uses now?</question>
+    <answer>live2d-zip</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>How many expressions of the active avatar model contain the text "color"?</question>
+    <answer>18</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Which available display model has the format pmx-zip? Give its name.</question>
+    <answer>Night_Eleanor_R15_1.11.zip</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>What is the display name of the voice that the character speaks with now?</question>
+    <answer>Heart (Female, English)</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>What language code does the app use for 日本語?</question>
+    <answer>ja</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>What is the display name of the provider of the current chat model?</question>
+    <answer>Ollama</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>How many available display models have the format vrm?</question>
+    <answer>2</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>What is the theme hue of the app now, in degrees?</question>
+    <answer>200</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>In alphabetical order, which expression of the active model is the first one that contains the text "eye"?</question>
+    <answer>closed eyes</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>How many expressions does the active avatar model have in total?</question>
+    <answer>40</answer>
+  </qa_pair>
+</evaluation>

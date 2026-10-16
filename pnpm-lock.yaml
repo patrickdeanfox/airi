@@ -6320,6 +6320,24 @@ importers:
         specifier: 'catalog:'
         version: 1.4.2(typescript@6.0.3)
 
+  services/airi-mcp-server:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: 'catalog:'
+        version: 1.30.0(supports-color@10.2.2)(zod@4.4.3)
+      '@moeru/std':
+        specifier: 'catalog:'
+        version: 0.1.0-beta.17
+      '@proj-airi/server-sdk':
+        specifier: workspace:^
+        version: link:../../packages/server-sdk
+      '@valibot/to-json-schema':
+        specifier: 'catalog:'
+        version: 1.0.0-rc.0(valibot@1.4.2(typescript@6.0.3))
+      valibot:
+        specifier: 'catalog:'
+        version: 1.4.2(typescript@6.0.3)
+
   services/computer-use-mcp:
     dependencies:
       '@modelcontextprotocol/sdk':
