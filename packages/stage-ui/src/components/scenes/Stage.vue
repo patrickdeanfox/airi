@@ -5,6 +5,7 @@ import type { CaptionChannelEvent, PresenceBubbleState } from '@proj-airi/stage-
 import type { VrmInteractionTarget } from '@proj-airi/stage-ui-three'
 
 import type { EmotionPayload } from '../../constants/emotions'
+import type { VrmAnimation } from '../../stores/vrm-animations'
 
 import { defineInvokeHandler } from '@moeru/eventa'
 import { errorMessageFrom, sleep } from '@moeru/std'
@@ -48,6 +49,7 @@ import { useSettings } from '../../stores/settings'
 import { useSettingsStageModel } from '../../stores/settings/stage-model'
 import { useSpeechOutputControlStore } from '../../stores/speech-output-control'
 import { useVoiceStore } from '../../stores/voice'
+import { useVrmAnimationsStore } from '../../stores/vrm-animations'
 
 const props = withDefaults(defineProps<{
   cursorPosition?: { x: number, y: number }
@@ -316,6 +318,45 @@ const emotionsQueue = createQueue<EmotionPayload>({
 
 const streamingControl = useLlmStreamingControlStore()
 
+const vrmAnimationPlayRequestTtlMs = 5_000
+const vrmAnimationsStore = useVrmAnimationsStore()
+const { animations: vrmAnimations, playRequest: vrmAnimationPlayRequest } = storeToRefs(vrmAnimationsStore)
+const activeVrmAnimations = computed(() => vrmAnimations.value.filter(animation => animation.modelId === stageModelSelected.value))
+
+vrmAnimationsStore.load().catch(error => console.warn('[Stage] Failed to load VRM animations:', error))
+
+async function playVrmAnimation(animation: VrmAnimation) {
+  const file = await vrmAnimationsStore.getFile(animation.id)
+  if (!file)
+    return
+
+  const url = URL.createObjectURL(file)
+  try {
+    await vrmViewerRef.value?.playAnimation(url)
+  }
+  finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+/** Plays the animation that the ACT `motion` names, or else the animation linked to the emotion. */
+function playVrmAnimationForAct(motion: string | undefined, emotion: Emotion | undefined) {
+  const animation = (motion && activeVrmAnimations.value.find(item => item.name === motion.trim().toLowerCase()))
+    || (emotion && activeVrmAnimations.value.find(item => item.emotion === emotion))
+  if (animation)
+    playVrmAnimation(animation).catch(error => console.warn('[Stage] Failed to play VRM animation:', error))
+}
+
+watch(vrmAnimationPlayRequest, (request) => {
+  // A window that opens later receives the last request in its first snapshot. Play only fresh requests.
+  if (!request || Date.now() - request.requestedAt > vrmAnimationPlayRequestTtlMs)
+    return
+
+  const animation = activeVrmAnimations.value.find(item => item.id === request.id)
+  if (animation && stageModelRenderer.value === 'vrm')
+    playVrmAnimation(animation).catch(error => console.warn('[Stage] Failed to play VRM animation:', error))
+})
+
 function toStageEmotionPayload(payload: { name: string, intensity: number }): EmotionPayload | undefined {
   switch (payload.name) {
     case 'happy':
@@ -359,6 +400,9 @@ chatHookCleanups.push(streamingControl.onSignal(async (signal) => {
         await live2d.expressions.execute(act.expression)
       }
     }
+
+    if (stageModelRenderer.value === 'vrm')
+      playVrmAnimationForAct(act.motion, act.emotion ? toStageEmotionPayload(act.emotion)?.name : undefined)
 
     if (act.emotion && !explicitLive2DMotion) {
       const emotion = toStageEmotionPayload(act.emotion)

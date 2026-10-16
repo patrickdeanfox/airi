@@ -7,6 +7,8 @@ import { storeToRefs } from 'pinia'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import VrmMotionList from './vrm-motion-list.vue'
+
 import { Container, PropertyColor, PropertyNumber, PropertyPoint } from '../../../data-pane'
 import { ColorPalette } from '../../../widgets'
 
@@ -234,6 +236,17 @@ const envOptions = computed(() => [
         </div>
       </div>
     </div>
+  </Container>
+  <Container
+    :title="t('settings.vrm.motions.title')"
+    icon="i-solar:running-round-bold-duotone"
+    :class="[
+      'rounded-xl',
+      'bg-white/80  dark:bg-black/75',
+      'backdrop-blur-lg',
+    ]"
+  >
+    <VrmMotionList />
   </Container>
   <Container
     :title="t('settings.vrm.change-model.title')"

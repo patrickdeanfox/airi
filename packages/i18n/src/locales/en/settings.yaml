@@ -2572,6 +2572,16 @@ vrm:
     from-url-placeholder: Enter VRM model URL
     title: Change Model
   title: VRM Settings
+  motions:
+    title: Motions
+    description: Import .vrma motions for this model. The character plays a motion when she names it, or when she shows its linked emotion.
+    import: Import .vrma
+    empty: No motions yet.
+    emotion: Play on emotion
+    emotion-none: Only when she names it
+    play: Play
+    remove: Remove
+    import-failed: The motion could not be imported.
   scale-and-position:
     model-info-title: Model Size Information
     model-info-x: Width (X)

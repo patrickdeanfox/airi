@@ -8,6 +8,7 @@
 
 import type { VRM } from '@pixiv/three-vrm'
 import type {
+  AnimationAction,
   Group,
   Material,
   Object3D,
@@ -69,6 +70,7 @@ import {
 import {
   clipFromVRMAnimation,
   loadVRMAnimation,
+  playOneShotClip,
   reAnchorRootPositionTrack,
   useBlink,
   useIdleEyeSaccades,
@@ -192,6 +194,11 @@ const raycaster = new Raycaster()
 
 // Animation related ref
 const vrmAnimationMixer = ref<AnimationMixer>()
+const vrmIdleAction = shallowRef<AnimationAction>()
+/** The crossfade between the idle loop and a one-shot animation, in seconds. */
+const oneShotFadeSeconds = 0.3
+/** Ends the one-shot animation that plays now, if any. */
+let endOneShot: ((fadeSeconds: number) => void) | undefined
 const { onBeforeRender, stop, start } = useLoop()
 
 const vrmHooks: readonly VrmHook[] = resolveInternalVrmHooks()
@@ -303,7 +310,7 @@ function getManagedVrmScopeKey() {
 }
 
 function getActiveManagedVrmInstance() {
-  if (!modelSrc.value || !vrm.value || !vrmGroup.value || !vrmAnimationMixer.value || !vrmEmote.value)
+  if (!modelSrc.value || !vrm.value || !vrmGroup.value || !vrmAnimationMixer.value || !vrmIdleAction.value || !vrmEmote.value)
     return undefined
 
   return createManagedVrmInstance({
@@ -311,12 +318,15 @@ function getActiveManagedVrmInstance() {
     group: vrmGroup.value,
     interactionColliders: interactionColliders.value!,
     mixer: vrmAnimationMixer.value,
+    idleAction: vrmIdleAction.value!,
     vrm: vrm.value,
   })
 }
 
 function clearActiveManagedVrmRefs() {
+  endOneShot?.(0)
   vrmAnimationMixer.value = undefined
+  vrmIdleAction.value = undefined
   vrmEmote.value = undefined
   vrm.value = undefined
   vrmGroup.value = undefined
@@ -339,6 +349,7 @@ function applyManagedVrmInstance(instance: ManagedVrmInstance) {
   vrm.value = instance.vrm
   vrmGroup.value = instance.group
   vrmAnimationMixer.value = instance.mixer
+  vrmIdleAction.value = instance.idleAction
   vrmEmote.value = instance.emote
   interactionColliders.value = instance.interactionColliders
 }
@@ -714,6 +725,7 @@ async function loadModel() {
   let nextVrm: VRM | undefined
   let nextVrmGroup: Group | undefined
   let nextVrmAnimationMixer: AnimationMixer | undefined
+  let nextVrmIdleAction: AnimationAction | undefined
   let nextVrmEmote: ReturnType<typeof useVRMEmote> | undefined
   let didCommitLoad = false
 
@@ -755,6 +767,7 @@ async function loadModel() {
         nextVrm = reusableInstance.vrm
         nextVrmGroup = reusableInstance.group
         nextVrmAnimationMixer = reusableInstance.mixer
+        nextVrmIdleAction = reusableInstance.idleAction
         nextVrmEmote = reusableInstance.emote
 
         runVrmLoadHooks({
@@ -839,7 +852,8 @@ async function loadModel() {
 
     // play animation
     nextVrmAnimationMixer = new AnimationMixer(_vrm.scene)
-    nextVrmAnimationMixer.clipAction(clip).play()
+    nextVrmIdleAction = nextVrmAnimationMixer.clipAction(clip)
+    nextVrmIdleAction.play()
 
     nextVrmEmote = useVRMEmote(_vrm)
 
@@ -914,6 +928,7 @@ async function loadModel() {
       group: _vrmGroup,
       interactionColliders: nextInteractionColliders,
       mixer: nextVrmAnimationMixer,
+      idleAction: nextVrmIdleAction,
       vrm: _vrm,
     }), currentLoadReason)
     didCommitLoad = true
@@ -1101,8 +1116,35 @@ function headAnchor() {
   return { position: headPosition, radius }
 }
 
+/**
+ * Plays a `.vrma` animation once, then returns to the idle loop.
+ * A new call ends the animation that plays now. Resolves `false` when the model is not ready or the file has no animation.
+ */
+async function playAnimation(url: string): Promise<boolean> {
+  const currentVrm = vrm.value
+  const mixer = vrmAnimationMixer.value
+  const idle = vrmIdleAction.value
+  if (!currentVrm || !mixer || !idle)
+    return false
+
+  const clip = await clipFromVRMAnimation(currentVrm, await loadVRMAnimation(url))
+  // The model can change while the file loads.
+  if (!clip || vrmAnimationMixer.value !== mixer)
+    return false
+
+  reAnchorRootPositionTrack(clip, currentVrm)
+  endOneShot?.(0)
+  const end = playOneShotClip(mixer, idle, clip, oneShotFadeSeconds, () => {
+    if (endOneShot === end)
+      endOneShot = undefined
+  })
+  endOneShot = end
+  return true
+}
+
 defineExpose({
   headAnchor,
+  playAnimation,
   getInteractionColliders: () => interactionColliders.value?.colliders ?? [],
   setExpression(expression: string, intensity = 1) {
     vrmEmote.value?.setEmotionWithResetAfter(expression, 3000, intensity)

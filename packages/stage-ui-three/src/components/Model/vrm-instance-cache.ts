@@ -1,5 +1,5 @@
 import type { VRM } from '@pixiv/three-vrm'
-import type { AnimationMixer, Group } from 'three'
+import type { AnimationAction, AnimationMixer, Group } from 'three'
 
 import type { useVRMEmote } from '../../composables/vrm/expression'
 import type { VrmInteractionColliderSet } from '../../composables/vrm/interaction'
@@ -10,6 +10,8 @@ import { stageThreeTraceVrmCacheEvent } from '../../trace/eventa'
 export interface ManagedVrmInstance {
   emote: ReturnType<typeof useVRMEmote>
   group: Group
+  /** The looping idle animation. A one-shot animation fades out of it and back into it. */
+  idleAction: AnimationAction
   interactionColliders: VrmInteractionColliderSet
   mixer: AnimationMixer
   modelSrc: string

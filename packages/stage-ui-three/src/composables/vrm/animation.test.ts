@@ -4,7 +4,7 @@ import { VRMCore as Core, VRMHumanoid } from '@pixiv/three-vrm-core'
 import { AnimationClip, AnimationMixer, Group, Object3D, QuaternionKeyframeTrack, VectorKeyframeTrack } from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { reAnchorRootPositionTrack, useBlink } from './animation'
+import { playOneShotClip, reAnchorRootPositionTrack, useBlink } from './animation'
 
 /** Creates a real normalized rig without a model file or a renderer. */
 function createRig() {
@@ -233,5 +233,53 @@ describe('useBlink', () => {
     for (let i = 0; i < 64; i++)
       blink.update(vrm, 0.016)
     expect(lastBlinkValue(vrm)).toBeGreaterThan(0)
+  })
+})
+
+describe('playOneShotClip', () => {
+  function setup() {
+    const root = new Object3D()
+    root.name = 'bone'
+    const mixer = new AnimationMixer(root)
+    const idleClip = new AnimationClip('idle', 2, [new VectorKeyframeTrack('bone.position', [0, 2], [0, 0, 0, 0, 0, 0])])
+    const oneShotClip = new AnimationClip('drink', 1, [new VectorKeyframeTrack('bone.position', [0, 1], [0, 1, 0, 0, 1, 0])])
+    const idle = mixer.clipAction(idleClip)
+    idle.play()
+    return { mixer, idle, oneShotClip }
+  }
+
+  it('fades from idle to the clip and back to idle after one play', () => {
+    vi.useFakeTimers()
+    const { mixer, idle, oneShotClip } = setup()
+    const onEnd = vi.fn()
+
+    playOneShotClip(mixer, idle, oneShotClip, 0.25, onEnd)
+    mixer.update(0.5)
+    expect(idle.getEffectiveWeight()).toBe(0)
+    expect(mixer.existingAction(oneShotClip)?.getEffectiveWeight()).toBe(1)
+
+    mixer.update(0.6)
+    expect(onEnd).toHaveBeenCalledOnce()
+    mixer.update(0.3)
+    vi.advanceTimersByTime(250)
+
+    expect(idle.getEffectiveWeight()).toBe(1)
+    expect(mixer.existingAction(oneShotClip)).toBeNull()
+    vi.useRealTimers()
+  })
+
+  it('returns to idle at once when it ends early with no fade', () => {
+    const { mixer, idle, oneShotClip } = setup()
+    const onEnd = vi.fn()
+
+    const end = playOneShotClip(mixer, idle, oneShotClip, 0.25, onEnd)
+    mixer.update(0.1)
+    end(0)
+    end(0)
+    mixer.update(0.1)
+
+    expect(onEnd).toHaveBeenCalledOnce()
+    expect(idle.getEffectiveWeight()).toBe(1)
+    expect(mixer.existingAction(oneShotClip)).toBeNull()
   })
 })

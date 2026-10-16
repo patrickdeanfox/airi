@@ -1,10 +1,10 @@
 import type { VRMAnimation } from '@pixiv/three-vrm-animation'
 import type { VRMCore } from '@pixiv/three-vrm-core'
-import type { AnimationClip } from 'three'
+import type { AnimationAction, AnimationClip, AnimationMixer } from 'three'
 import type { Ref } from 'vue'
 
 import { createVRMAnimationClip } from '@pixiv/three-vrm-animation'
-import { Object3D, Vector3, VectorKeyframeTrack } from 'three'
+import { LoopOnce, Object3D, Vector3, VectorKeyframeTrack } from 'three'
 import { randFloat } from 'three/src/math/MathUtils.js'
 import { ref } from 'vue'
 
@@ -45,6 +45,59 @@ export async function clipFromVRMAnimation(vrm?: VRMCore, animation?: VRMAnimati
 
   // create animation clip
   return createVRMAnimationClip(animation, vrm)
+}
+
+/** Gives an action full weight from now on, so a crossfade can start from it or end on it. */
+function activateAction(action: AnimationAction) {
+  action.enabled = true
+  action.setEffectiveTimeScale(1)
+  action.setEffectiveWeight(1)
+}
+
+/**
+ * Crossfades from the idle action to `clip`, plays the clip once, and crossfades back to idle.
+ * Returns a function that ends the clip early, with a crossfade of the given length. `0` ends it at once.
+ * `onEnd` runs once, when the clip starts to return to idle.
+ */
+export function playOneShotClip(mixer: AnimationMixer, idle: AnimationAction, clip: AnimationClip, fadeSeconds: number, onEnd: () => void) {
+  const action = mixer.clipAction(clip)
+  action.setLoop(LoopOnce, 1)
+  action.clampWhenFinished = true
+  activateAction(action)
+  action.reset().play()
+  idle.crossFadeTo(action, fadeSeconds, false)
+
+  let ended = false
+  let releaseTimer: ReturnType<typeof setTimeout> | undefined
+
+  function release() {
+    clearTimeout(releaseTimer)
+    action.stop()
+    mixer.uncacheClip(clip)
+  }
+
+  function end(endFadeSeconds: number) {
+    if (ended)
+      return
+    ended = true
+    mixer.removeEventListener('finished', onFinished)
+    activateAction(idle)
+    onEnd()
+    if (endFadeSeconds <= 0) {
+      release()
+      return
+    }
+    action.crossFadeTo(idle, endFadeSeconds, false)
+    releaseTimer = setTimeout(release, endFadeSeconds * 1000)
+  }
+
+  function onFinished(event: { action: AnimationAction }) {
+    if (event.action === action)
+      end(fadeSeconds)
+  }
+
+  mixer.addEventListener('finished', onFinished)
+  return end
 }
 
 /**
